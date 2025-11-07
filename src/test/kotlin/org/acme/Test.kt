@@ -4,9 +4,6 @@ import io.quarkus.test.junit.QuarkusTest
 import io.smallrye.mutiny.Uni
 import jakarta.inject.Inject
 import jakarta.persistence.criteria.CriteriaDelete
-import org.acme.repository.model.ChildEntity
-import org.acme.repository.model.OptionalChildEntity
-import org.acme.repository.model.ParentEntity
 import org.hibernate.reactive.mutiny.Mutiny
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Test
@@ -19,35 +16,90 @@ internal class Test {
     lateinit var sf: Mutiny.SessionFactory
 
     @Test
-    fun save() {
-        sf.withTransaction { session -> session.persist(exampleEntity) }.await().indefinitely()
+    fun shouldSave() {
+        val entity = PostEntity(
+            name = "parent",
+            child = DetailsEntity(
+                name = "child"
+            ),
+            optionalChild = OptionalDetailsEntity(
+                name = "optionalChild"
+            ),
+            comments = mutableListOf(
+                CommentEntity(name = "comment"),
+                CommentEntity(name = "comment2")
+            ),
+            reactions = mutableListOf(
+                ReactionEntity(name = "reaction"),
+                ReactionEntity(name = "reaction2")
+            ),
+        )
 
-        val result = sf.withSession { session -> session.find(ParentEntity::class.java, 1L) }.await().indefinitely()
+        sf.withTransaction { session -> session.persist(entity).flatMap { session.flush() } }.await().indefinitely()
+
+        val result = sf.withSession { session -> session.find(PostEntity::class.java, 1L) }.await().indefinitely()
 
         Assertions.assertEquals(result.id, 1L)
+        Assertions.assertNotNull(result.optionalChild)
+        Assertions.assertEquals(2, result.comments.size)
+        Assertions.assertEquals(2, result.reactions.size)
     }
 
     @Test
-    fun saveAndRemoveOptionalChild() {
-        sf.withTransaction { session -> session.persist(exampleEntity) }.await().indefinitely()
+    fun shouldReturnOnlyNotDeletedComments() {
+        val entity = PostEntity(
+            name = "parent",
+            child = DetailsEntity(
+                name = "child"
+            ),
+            optionalChild = OptionalDetailsEntity(
+                name = "optionalChild"
+            ),
+            comments = mutableListOf(
+                CommentEntity(name = "comment"),
+                CommentEntity(name = "comment2")
+            ),
+            reactions = mutableListOf(
+                ReactionEntity(name = "reaction"),
+                ReactionEntity(name = "reaction2")
+            ),
+        )
+        sf.withTransaction { session -> session.persist(entity) }.await().indefinitely()
+        sf.removeBy(entityClass = CommentEntity::class, attributeName = "id", value = 1L).await().indefinitely()
 
-        sf.removeBy(entityClass = OptionalChildEntity::class, attributeName = "id", value = 1L).await().indefinitely()
+        val result = sf.withSession { session -> session.find(PostEntity::class.java, 1L) }.await().indefinitely()
 
-        val result = sf.withSession { session -> session.find(ParentEntity::class.java, 1L) }.await().indefinitely()
-
-        Assertions.assertEquals(result.id, 1L)
-        Assertions.assertNull(result.optionalChild)
+        Assertions.assertEquals(1, result.comments.size)
+        Assertions.assertEquals(2, result.reactions.size)
     }
 
-    val exampleEntity = ParentEntity(
-        name = "parent",
-        child = ChildEntity(
-            name = "child"
-        ),
-        optionalChild = OptionalChildEntity(
-            name = "optionalChild"
+    @Test
+    fun shouldReturnOnlyNotDeletedReactions() {
+        val entity = PostEntity(
+            name = "parent",
+            child = DetailsEntity(
+                name = "child"
+            ),
+            optionalChild = OptionalDetailsEntity(
+                name = "optionalChild"
+            ),
+            comments = mutableListOf(
+                CommentEntity(name = "comment"),
+                CommentEntity(name = "comment2")
+            ),
+            reactions = mutableListOf(
+                ReactionEntity(name = "reaction"),
+                ReactionEntity(name = "reaction2")
+            ),
         )
-    )
+        sf.withTransaction { session -> session.persist(entity) }.await().indefinitely()
+        sf.removeBy(entityClass = ReactionEntity::class, attributeName = "id", value = 1L).await().indefinitely()
+
+        val result = sf.withSession { session -> session.find(PostEntity::class.java, 1L) }.await().indefinitely()
+
+        Assertions.assertEquals(2, result.comments.size)
+        Assertions.assertEquals(1, result.reactions.size)
+    }
 
     fun <T : Any, V> Mutiny.SessionFactory.removeBy(
         entityClass: KClass<T>,
